@@ -1,21 +1,12 @@
 #include <sim900.h>
 
-#define STATUS_LED 12
-#define STATUS_LED_ERROR 11
-#define SIGNAL_LED1 4
-#define SIGNAL_LED2 3
-#define SIGNAL_LED3 2
+
 bool led_state = LOW;
-
-#define RST_PIN 8
-#define PWRKEY 9
-
-SIM900 sim900(Serial1);
 
 unsigned long start_time_buffer = 0;
 char buffer[161]; // Max SMS length + null terminator
 char buffer_old[161];
-unsigned long dataset_age = 0; // in seconds since midnight
+unsigned long dataset_age = 0; // in milliseconds since midnight
 char phonenumber[14]; //+XXxxxxxxxxxx 
 bool sendSMS = false;
 bool calling = false;
@@ -23,9 +14,9 @@ unsigned long calling_time = 4294962000UL; // near to the but not the maximum va
 bool smsSent = false;
 unsigned long lastRingMessageTime = 0; // Timestamp for the last "ringing" message
 int event_status_old = 0;
-unsigned long lastDailyTaskTime = 0; // For rollover-safe daily tasks
+unsigned long rtcSyncTime = 0; // For rollover-safe daily tasks
 const unsigned long oneDay = 1000UL * 60 * 60 * 24; // Use UL to prevent int overflow during calculation
-const unsigned long oneMinute = 60UL;
+const unsigned long oneMinute = 60UL * 1000; // 60,000 milliseconds
 
 const byte serialCmdBufferSize = 255;
 char serialCmdBuffer[serialCmdBufferSize];
@@ -38,20 +29,18 @@ uint8_t year;
 uint8_t hour;
 uint8_t minute;
 uint8_t second;
+unsigned long rtcSyncMillis = 0; // millis() value at the last RTC sync
+unsigned long rtcSyncMilliSeconds = 0; // Time in seconds since midnight at the last RTC sync
+
+SIM900 sim900(Serial1);
 
 void setup() {
-  pinMode(STATUS_LED, OUTPUT);
-  pinMode(STATUS_LED_ERROR, OUTPUT);
-  pinMode(PWRKEY, OUTPUT);
-  pinMode(RST_PIN, OUTPUT); 
-  digitalWrite(PWRKEY, LOW); // Keep PWRKEY low initially
-  digitalWrite(RST_PIN, HIGH); // Keep SIM900 out of reset state
-  // led test
-  digitalWrite(STATUS_LED, HIGH);
-  digitalWrite(STATUS_LED_ERROR, HIGH);
-  delay(2000);
-  
-  while(!bootstrap()) {
+  Serial.begin(19200);
+  Serial1.begin(9600);
+  while(!Serial);
+  while(!Serial1);
+  //sim900.bootstrap();
+  while(!sim900.bootstrap()) {
     delay(5000); // Wait before retrying
   }
 
@@ -75,8 +64,8 @@ void loop() {
   }
 
   // Rollover-safe check to update RTC once per day
-  if (millis() - lastDailyTaskTime >= oneDay) {
-    lastDailyTaskTime = millis(); // Reset the timer for the next day
+  if (millis() - rtcSyncTime >= oneDay) {
+    rtcSyncTime = millis(); // Reset the timer for the next day
     SIM900RTC current = sim900.rtc();
     storeRTC(current);
   }
@@ -129,12 +118,12 @@ void loop() {
     Serial.print(phonenumber); Serial.println(F(" is calling..."));
     lastRingMessageTime = millis();
   }
-  if (sendSMS) { 
-    unsigned long secondssincemidnight = getSecondsSinceMidnight();
-    if((dataset_age + oneMinute*4) > secondssincemidnight) {
-      sendSMSRoutine(phonenumber, buffer);
+  if (sendSMS) {
+    // Compare milliseconds to milliseconds. Convert the dataset age (in seconds) to milliseconds.
+    if((dataset_age + oneMinute*4) > getMillisSinceMidnight()) {
+      sim900.sendSMSRoutine(phonenumber, buffer);
     } else {
-      sendSMSRoutine(phonenumber, "Keine aktuellen Wetterdaten verfugbar.");
+      sim900.sendSMSRoutine(phonenumber, "Keine aktuellen Wetterdaten verfugbar.");
     }
     sendSMS = false;
   }
@@ -157,109 +146,6 @@ void loop() {
   }
 
   delay(50); // Reduced delay to make loop more responsive
-}
-
-bool bootstrap() {
-  static bool reset_attempted = false;
-  int signal_strength = 0; // Declare variable at the top of the scope
-  String resp;
-  bool simcardOK = false;
-  bool signalOK = false;
-
-  digitalWrite(STATUS_LED, LOW);
-  digitalWrite(STATUS_LED_ERROR, LOW);
-  // stage 0
-  digitalWrite(STATUS_LED, HIGH); // stage 1
-  digitalWrite(STATUS_LED, LOW);
-  Serial.begin(19200);
-  while(!Serial);
-  Serial.println(F("--------------------------"));
-  Serial.println(F("Arduino SIM900 SMS WEATHER SERVICE"));
-  Serial.println(F("--------------------------"));
-  Serial.println(F("[#     ] stage1: status led"));
-  Serial.println(F("[##    ] stage2: serial ready")); // stage 2
-  Serial1.begin(9600);
-  while(!Serial1);
-  Serial.println(F("[###   ] stage3: shield serial seems to be ready")); // stage 3
-  delay(1000);
-  // can we write to Serial1?
-  Serial.println(F("can we write to Serial1?"));
-  Serial1.println(F("AT"));
-  Serial.println(F("wrote 'AT'-command to Serial1"));
-  Serial.println(F("trying to read from Serial1"));
-  delay(400);
-  if(Serial1.available()) {
-    String response;
-    if(Serial1.available() > 0) {
-        response = Serial1.readString();
-        //response.trim();
-    }
-    //Serial.println();
-    Serial.println(F("read ")); Serial.print(response.length()); Serial.println(F(" bytes"));
-    // stage 4
-    Serial.print(F("response: ")); Serial.println(response);
-    if(response.length() > 0) Serial.println(F("got a response."));
-    if(response.indexOf("ERROR") != -1) {
-      digitalWrite(STATUS_LED_ERROR, HIGH);
-      Serial.println(F("did receive an 'AT ERROR'"));
-      return false;
-    }
-    if(response.indexOf("OK") != -1) {
-      Serial.println(F("[####  ] stage4: shield serial is ready")); // stage 4
-    } else {
-      digitalWrite(STATUS_LED_ERROR, HIGH);
-      Serial.println(F("Error: did not receive valid response"));
-      Serial.println(F("cannot read from shield serial. power down? check power state, check wiring"));
-      // reset; if test fails poweron
-      goto bootstrap_fail;
-    }
-  } else {
-    Serial.println(F("Error: No serial data available from SIM900."));
-    goto bootstrap_fail;
-  }
-
-  // stage 5 handshake from library
-  if(sim900.handshake()) {
-    Serial.println(F("[##### ] stage5: handshaked!"));
-  } else {
-    Serial.println(F("Error: handshake failed."));
-    goto bootstrap_fail;
-  }
-
-  // stage 6 sim cardok, signal strengthok, net status, receive calls, sms
-  sim900.sendCommand("AT+CPIN?");
-  resp = sim900.getResponse();
-  if(resp.indexOf("+CPIN: READY") != -1) {
-    simcardOK = true;
-    Serial.println(F("sim card is ready"));
-  } else {
-    digitalWrite(STATUS_LED_ERROR, HIGH);
-    Serial.println(F("sim card is not ready"));
-    return false;
-  }
-
-  signal_strength = measureSignalStrength();
-  signalOK = isSignalOk(signal_strength);
-  if(simcardOK && signalOK) {
-    Serial.println(F("[######] stage6: simcard is ready and signal is OK"));
-  } else {
-    digitalWrite(STATUS_LED_ERROR, HIGH);
-    return false;
-  }
-
-  reset_attempted = false; // Success, so reset the flag for the next time bootstrap might fail.
-  return true;
-
-bootstrap_fail:
-  digitalWrite(STATUS_LED_ERROR, HIGH);
-  Serial.println(F("bootstrap failed. attempting recovery..."));
-  if (!reset_attempted) {
-    SIM900reset();
-    reset_attempted = true;
-  } else {
-    SIM900powerOn();
-  }
-  return false;
 }
 
 void parseCommand(const char* command) {
@@ -285,10 +171,11 @@ void parseCommand(const char* command) {
       // Find "time: HH:MM:SS" and parse it
       const char* time_ptr = strstr(message, "time: ");
       if (time_ptr != NULL) {
-        time_ptr += 6; // Move pointer past "time: "
-        dataset_age = ((time_ptr[0] - '0') * 10UL + (time_ptr[1] - '0')) * 3600UL +
-                      ((time_ptr[3] - '0') * 10UL + (time_ptr[4] - '0')) * 60UL +
-                      ((time_ptr[6] - '0') * 10UL + (time_ptr[7] - '0'));
+        time_ptr += 6; // Move pointer past "time: " to the start of HH:MM:SS
+        unsigned long total_seconds = ((time_ptr[0] - '0') * 10UL + (time_ptr[1] - '0')) * 3600UL +
+                                      ((time_ptr[3] - '0') * 10UL + (time_ptr[4] - '0')) * 60UL +
+                                      ((time_ptr[6] - '0') * 10UL + (time_ptr[7] - '0'));
+        dataset_age = total_seconds * 1000UL;
       }
       // Safely copy the message to the global buffer
       strncpy(buffer, message, sizeof(buffer) - 1);
@@ -299,9 +186,10 @@ void parseCommand(const char* command) {
     }
 
   } else if (strcmp(command, "time") == 0) {
-    String s = getFakeHardwareClockTime();
+    char timeBuffer[25];
+    getFakeHardwareClockTime(timeBuffer, sizeof(timeBuffer));
     while(millis() % 1000 != 0); // print time at precise time intervals
-    Serial.println("time: " + s);
+    Serial.print("time: "); Serial.println(timeBuffer);
   } else if (strncmp(command, "sendsms", 7) == 0) {
     Serial.println(F("sendsms"));
     // The logic for sendsms using String is complex to convert without
@@ -329,101 +217,11 @@ void parseCommand(const char* command) {
     Serial.print(F("message: ")); Serial.println(message1);
     const char* message = message1.c_str();
     if (sizeof(phonenumber) > 0 && message1.length() > 0) {
-      sendSMSRoutine(phonenumber, message);
+      sim900.sendSMSRoutine(phonenumber, message);
     } else {
       Serial.println(F("sms could not be sent."));
     }
   }  //else
-}
-
-bool sendSMSRoutine(const char* phonenumber, const char* message) {
-  const int max_retries = 2;
-  for(int retries = max_retries; retries > 0; retries--) {
-    delay(200);
-    if (!sim900.handshake()) {
-      Serial.println(F("handshake failed, retrying..."));
-      continue; // Skip to the next attempt
-    }
-
-    Serial1.readString(); // Clear any lingering response from the buffer
-    Serial.println(F("sending sms..."));
-    Serial.print(F("phonenumber: \"")); Serial.print(phonenumber); Serial.println(F("\""));
-
-    bool sent = false;
-    if(strlen(message) > 0) {
-      Serial.print(F("message: ")); Serial.println(message);
-      sent = sim900.sendSMS(phonenumber, message); // Convert to String for the library function
-    } else {
-      Serial.println(F("no message to send."));
-    }
-
-    if (sent) {
-      return true; // Success! Exit the function.
-    }
-  }
-  return false;
-}
-
-String sendCommand(String command) {
-  Serial1.println(command);
-  delay(500);
-  String response = String();
-  while(Serial1.available()) {
-    char ch = Serial1.read();
-    //Serial.print(ch);
-    response += ch;
-  }
-  return response;
-}
-
-int rssiToDbm(int rssi) {
-  if (rssi == 99) {
-    return 999; // Represents "not known or not detectable"
-  }
-  if (rssi == 0) {
-    return -113;
-  }
-  if (rssi == 1) {
-    return -111;
-  }
-  if (rssi == 31) {
-    return -51;
-  }
-  if (rssi >= 2 && rssi <= 30) {
-    // Linear conversion for the main range
-    return -113 + (rssi * 2);
-  }
-  
-  return 999; // Return an error code for any other value
-}
-
-int measureSignalStrength() {
-  SIM900Signal signal = sim900.signal(); // 0 - 31
-  int signal_rssi = signal.rssi;
-  digitalWrite(SIGNAL_LED1, LOW); digitalWrite(SIGNAL_LED2, LOW); digitalWrite(SIGNAL_LED3, LOW);
-  if(signal_rssi >= 0) { digitalWrite(SIGNAL_LED1, HIGH); }
-  if(signal_rssi >= 11) { digitalWrite(SIGNAL_LED2, HIGH); }
-  if(signal_rssi >= 21) { digitalWrite(SIGNAL_LED3, HIGH); }
-  //Serial.print(signal_rssi); // -113dBm to -51dBm
-  int signal_strength = rssiToDbm(signal_rssi);
-  Serial.print(F("signal strength: "));
-  Serial.print(signal_strength); // -113dBm to -51dBm
-  Serial.println(F("dBm"));
-  if (signal_rssi >= 2 && signal_rssi < 10) {
-    Serial.println(F("signal strength is marginal."));
-  }
-  if (signal_rssi >= 10 && signal_rssi <= 30) {
-    Serial.println(F("signal strength is OK."));
-  }
-  if(signal_rssi == 0 || signal_rssi == 1 || signal_rssi == 31) {
-    Serial.println(F("bad signal"));
-  }
-  return signal_rssi;
-}
-
-bool isSignalOk(int signal_strength) {
-  if(signal_strength >= 10 && signal_strength <= 30) return true;
-  else return false;
 }
 
 void storeRTC(SIM900RTC rtc) {
@@ -431,97 +229,38 @@ void storeRTC(SIM900RTC rtc) {
   month = rtc.month;
   year = rtc.year;
 
-  hour = rtc.hour;
-  minute = rtc.minute;
-  second = rtc.second;
-  String datetime = String("store datetime: ");
-  datetime.concat("store datetime: ");
-  datetime.concat(day);
-  datetime.concat(".");
-  datetime.concat(month);
-  datetime.concat(".");
-  datetime.concat(year);
-  datetime.concat(" ");
-  datetime.concat(hour);
-  datetime.concat(":");
-  datetime.concat(minute);
-  datetime.concat(":");
-  datetime.concat(second);
-  Serial.println(datetime);
+  // Store the time from RTC and the millis() value at the time of sync
+  rtcSyncMillis = millis();
+  // Convert total seconds since midnight to milliseconds for the base time
+  rtcSyncMilliSeconds = ((unsigned long)rtc.hour * 3600UL + (unsigned long)rtc.minute * 60UL + (unsigned long)rtc.second) * 1000UL;
+
+  // For debug printing, we can still use the individual components
+  Serial.print(F("stored datetime: "));
+  printRTC(rtc);
 }
 
 // hour:minute:seconds
-String getFakeHardwareClockTime() {
-  // seconds since midnight
-  unsigned long sum = 0;
-  sum += (unsigned long)hour * 3600UL;
-  sum += (unsigned long)minute*60UL;
-  sum += (unsigned long)second;
-  sum += millis()/1000UL;
-
-  /*Serial.print("sum: ");
-  Serial.println(sum);*/
+void getFakeHardwareClockTime(char* buffer, size_t bufferSize) {
+  // This function still works with seconds for display purposes
+  unsigned long now_seconds = getMillisSinceMidnight() / 1000UL;
   
-  int s = sum % 60;
-  unsigned long total_minutes = sum / 60;
+  int s = now_seconds % 60;
+  unsigned long total_minutes = now_seconds / 60;
   int min = total_minutes % 60;
   unsigned long total_hours = total_minutes / 60;
   int h = total_hours % 24;
 
-  //Serial.print("fakeHardwareClock time: ");
-  //Serial.print((int)h); Serial.print(":"); Serial.print((int)min); Serial.print(":"); Serial.println(s);
-
-  String timestr = String();
-  timestr.concat(day>9 ? "" : "0");
-  timestr.concat(day);
-  timestr.concat(".");
-  timestr.concat(month>9 ? "" : "0");
-  timestr.concat(month);
-  timestr.concat(".");
-  timestr.concat(year>9 ? "" : "0");
-  timestr.concat(year);
-  timestr.concat(" ");
-  timestr.concat(h>9 ? "" : "0");
-  timestr.concat(h);
-  timestr.concat(":");
-  timestr.concat(min>9 ? "" : "0");
-  timestr.concat(min);
-  timestr.concat(":");
-  timestr.concat(s>9 ? "" : "0");
-  timestr.concat(s);
-  return timestr;
+  snprintf(buffer, bufferSize,
+           "%02u.%02u.%02u %02u:%02u:%02u",
+           day, month, year,
+           h, min, s);
 }
 
-// returns seconds since midnight
-unsigned long getSecondsSinceMidnight() {
-  unsigned long secondssincemidnight = 0;
-  secondssincemidnight += (unsigned long)hour*3600UL;
-  secondssincemidnight += (unsigned long)minute*60UL;
-  secondssincemidnight += (unsigned long)second;
-  secondssincemidnight += millis()/1000UL;
-  return secondssincemidnight;
-}
-
-void SIM900reset()
-{
-  Serial.println(F("performing soft reset..."));
-  digitalWrite(RST_PIN, LOW); // Set the pin LOW to trigger reset
-  delay(100);                  // Wait briefly
-  digitalWrite(RST_PIN, HIGH);  // Set the pin HIGH to release from reset
-  delay(1000);                 // Wait for the module to restart
-}
-
-void SIM900powerOn()
-{
-  Serial.println(F("performing power cycle..."));
-  digitalWrite(PWRKEY, HIGH);
-  delay(1000); // Hold PWRKEY for 1 second
-  digitalWrite(PWRKEY, LOW);
-
-  Serial.println(F("waiting for sim900 to be available..."));
-  delay(10000); // Wait for the module to boot
-
-  if(sim900.isReady()) Serial.println(F("sim900 is on and ready."));
+// returns milliseconds since midnight
+unsigned long getMillisSinceMidnight() {
+  // Calculate elapsed seconds since last sync, safe from millis() rollover
+  unsigned long elapsedMillis = millis() - rtcSyncMillis;
+  return (rtcSyncMilliSeconds + elapsedMillis) % oneDay;
 }
 
 void printRTC(SIM900RTC datetime) {
