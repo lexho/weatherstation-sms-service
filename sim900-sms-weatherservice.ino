@@ -1,4 +1,5 @@
 #include <sim900.h>
+#include "time.h"
 
 
 bool led_state = LOW;
@@ -6,7 +7,7 @@ bool led_state = LOW;
 unsigned long start_time_buffer = 0;
 char buffer[161]; // Max SMS length + null terminator
 char buffer_old[161];
-unsigned long dataset_age = 0; // in milliseconds since midnight
+unsigned long message_age = 0; // in milliseconds since midnight
 char phonenumber[14]; //+XXxxxxxxxxxx 
 bool sendSMS = false;
 bool calling = false;
@@ -15,21 +16,21 @@ bool smsSent = false;
 unsigned long lastRingMessageTime = 0; // Timestamp for the last "ringing" message
 int event_status_old = 0;
 unsigned long rtcSyncTime = 0; // For rollover-safe daily tasks
-const unsigned long oneDay = 1000UL * 60 * 60 * 24; // Use UL to prevent int overflow during calculation
-const unsigned long oneMinute = 60UL * 1000; // 60,000 milliseconds
+//const unsigned long oneDay = 1000UL * 60 * 60 * 24; // Use UL to prevent int overflow during calculation
+//const unsigned long oneMinute = 60UL * 1000; // 60,000 milliseconds
 
 const byte serialCmdBufferSize = 255;
 char serialCmdBuffer[serialCmdBufferSize];
 byte serialCmdBufferIdx = 0;
 
-uint8_t day;
+/*uint8_t day;
 uint8_t month;
-uint8_t year;
+uint8_t year;*/
 
 uint8_t hour;
 uint8_t minute;
 uint8_t second;
-unsigned long rtcSyncMillis = 0; // millis() value at the last RTC sync
+//unsigned long rtcSyncMillis = 0; // millis() value at the last RTC sync
 unsigned long rtcSyncMilliSeconds = 0; // Time in seconds since midnight at the last RTC sync
 
 SIM900 sim900(Serial1);
@@ -45,8 +46,8 @@ void setup() {
   }
 
   SIM900RTC current = sim900.rtc();
-  storeRTC(current);
-  printRTC(current);
+  Time::storeRTC(current);
+  Time::printRTC(current);
 
   Serial.println(F("waiting for incoming data..."));
 }
@@ -63,13 +64,17 @@ void loop() {
     }
   }
 
-  // Rollover-safe check to update RTC once per day
-  if (millis() - rtcSyncTime >= oneDay) {
-    rtcSyncTime = millis(); // Reset the timer for the next day
+// Update time once per day
+  if (millis() - rtcSyncTime >= Time::oneHour) {
+    Serial.println("sync time with sim900 rtc");
+    if(Time::getMillisSinceMidnight() > 23UL*Time::oneHour) { // every day at 23:00
+      Serial.println("invalidate message");
+      message_age = 0; // reset message age
+    }
+    rtcSyncTime = millis();
     SIM900RTC current = sim900.rtc();
-    storeRTC(current);
+    Time::storeRTC(current);
   }
-
 
   /*while(Serial1.available()) {
     Serial.write(Serial1.read());
@@ -120,7 +125,7 @@ void loop() {
   }
   if (sendSMS) {
     // Compare milliseconds to milliseconds. Convert the dataset age (in seconds) to milliseconds.
-    if((dataset_age + oneMinute*4) > getMillisSinceMidnight()) {
+    if((message_age + Time::oneMinute*4) > Time::getMillisSinceMidnight()) {
       sim900.sendSMSRoutine(phonenumber, buffer);
     } else {
       sim900.sendSMSRoutine(phonenumber, "Keine aktuellen Wetterdaten verfugbar.");
@@ -175,7 +180,7 @@ void parseCommand(const char* command) {
         unsigned long total_seconds = ((time_ptr[0] - '0') * 10UL + (time_ptr[1] - '0')) * 3600UL +
                                       ((time_ptr[3] - '0') * 10UL + (time_ptr[4] - '0')) * 60UL +
                                       ((time_ptr[6] - '0') * 10UL + (time_ptr[7] - '0'));
-        dataset_age = total_seconds * 1000UL;
+        message_age = total_seconds * 1000UL;
       }
       // Safely copy the message to the global buffer
       strncpy(buffer, message, sizeof(buffer) - 1);
@@ -187,7 +192,7 @@ void parseCommand(const char* command) {
 
   } else if (strcmp(command, "time") == 0) {
     char timeBuffer[25];
-    getFakeHardwareClockTime(timeBuffer, sizeof(timeBuffer));
+    Time::getFakeHardwareClockTime(timeBuffer, sizeof(timeBuffer));
     while(millis() % 1000 != 0); // print time at precise time intervals
     Serial.print("time: "); Serial.println(timeBuffer);
   } else if (strncmp(command, "sendsms", 7) == 0) {
@@ -224,7 +229,7 @@ void parseCommand(const char* command) {
   }  //else
 }
 
-void storeRTC(SIM900RTC rtc) {
+/*void storeRTC(SIM900RTC rtc) {
   day = rtc.day;
   month = rtc.month;
   year = rtc.year;
@@ -237,12 +242,12 @@ void storeRTC(SIM900RTC rtc) {
   // For debug printing, we can still use the individual components
   Serial.print(F("stored datetime: "));
   printRTC(rtc);
-}
+}*/
 
 // hour:minute:seconds
-void getFakeHardwareClockTime(char* buffer, size_t bufferSize) {
+/*void getFakeHardwareClockTime(char* buffer, size_t bufferSize) {
   // This function still works with seconds for display purposes
-  unsigned long now_seconds = getMillisSinceMidnight() / 1000UL;
+  unsigned long now_seconds = Time::getMillisSinceMidnight() / 1000UL;
   
   int s = now_seconds % 60;
   unsigned long total_minutes = now_seconds / 60;
@@ -254,16 +259,16 @@ void getFakeHardwareClockTime(char* buffer, size_t bufferSize) {
            "%02u.%02u.%02u %02u:%02u:%02u",
            day, month, year,
            h, min, s);
-}
+}*/
 
 // returns milliseconds since midnight
-unsigned long getMillisSinceMidnight() {
+/*unsigned long getMillisSinceMidnight() {
   // Calculate elapsed seconds since last sync, safe from millis() rollover
   unsigned long elapsedMillis = millis() - rtcSyncMillis;
-  return (rtcSyncMilliSeconds + elapsedMillis) % oneDay;
-}
+  return (rtcSyncMilliSeconds + elapsedMillis) % Time::oneDay;
+}*/
 
-void printRTC(SIM900RTC datetime) {
+/*void printRTC(SIM900RTC datetime) {
   int day = datetime.day;
   int month = datetime.month;
   int year = datetime.year;
@@ -280,4 +285,4 @@ void printRTC(SIM900RTC datetime) {
   Serial.print(h>9 ? "" : "0"); Serial.print(h); Serial.print(":");
   Serial.print(m>9 ? "" : "0"); Serial.print(m); Serial.print(":");
   Serial.print(s>9 ? "" : "0"); Serial.println(s);
-}
+}*/
