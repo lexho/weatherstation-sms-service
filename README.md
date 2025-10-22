@@ -1,5 +1,6 @@
 # weatherstation-sms-service
-![arduino_sms_service](https://github.com/user-attachments/assets/cf1d6c18-f8d9-47da-ac6f-a029b2abfa15)
+![arduino_sms_service](https://github.com/user-attachments/assets/b20ded79-459d-4469-863f-e0c7c8b70475)
+
 It ***sends an sms*** with the current weather data. This code has been tested on an **Arduino Nano 33 BLE** and will run any similar hardware with ***hardware serial ports***.
 
 ***Send a message*** to Arduino with the 
