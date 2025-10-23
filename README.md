@@ -13,13 +13,13 @@ On linux shell type:
 ```
 echo "storebuffer time: 21:09:09, temp: 39.5oC, pressure: 1278.9hPa,..." > /dev/ttyACM0
 ```
-The message will be buffered and it will be available via sms. After a short period of time the message will be invalidated.
+The message will be buffered and it will be available via sms.
 
 ***Call*** your shield or ***send an sms*** to it and it will repond with 
 ```
 time: 21:09:09, temp: 39.5oC, pressure: 1278.9hPa, tendency: rising, windspeed: 271.7km/h, winddir: O
 ```
-or any message you store.
+or any message you store. After a short period of time the message will be invalidated.
 
 The code is non-blocking, it follows the **reactive programming paradigma**.
 The ```handleEvents()```-function in the loop() function emits events which turns the loop() function into an event loop, which should not be interrupted for too long. ```handleEvents()``` returns status codes for any event which could occur on a SIM900. For example ***RING***, ***message received***, ***AT OK***,... You can define actions bases on these events. For example every time when someone rings your SIM900 print the message ```somenone is calling...```.
