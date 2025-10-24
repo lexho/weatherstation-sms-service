@@ -11,6 +11,7 @@ command.
 Use the ***serial port*** to do this.
 On linux shell type:  
 ```
+stty -F /dev/ttyACM0 19200
 echo "storebuffer time: 21:09:09, temp: 39.5oC, pressure: 1278.9hPa,..." > /dev/ttyACM0
 ```
 The message will be buffered and it will be available via sms.
