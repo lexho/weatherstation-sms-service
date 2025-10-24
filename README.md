@@ -1,5 +1,5 @@
 # weatherstation-sms-service
-![arduino_sms_service](https://github.com/user-attachments/assets/b20ded79-459d-4469-863f-e0c7c8b70475)
+![arduino_sms_service](https://github.com/lexho/weatherstation-sms-service/blob/main/arduino_sms_service.jpg)
 
 It ***sends an sms*** with the current weather data.
 
