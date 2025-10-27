@@ -73,7 +73,7 @@ public:
     if (age < (4UL * Time::oneMinute)) {
       return sim900.sendSMSRoutine(buffer.c_str());
     } else {
-      return sim900.sendSMSRoutine("No data available.");
+      return sim900.sendSMSRoutine("Keine aktuellen Wetterdaten verfugbar.");
     }
   }
 
