@@ -103,6 +103,9 @@ void loop() {
       Serial.print(sim900.getPhoneNumber()); Serial.println(F(" is calling..."));
       lastRingMessageTime = millis();
     }
+
+    // put your code in here
+
   }
   if(event.status == SIM900_CLIP) {
     
@@ -113,6 +116,9 @@ void loop() {
     Serial.print(F("received an sms from "));
     Serial.println(sim900.getPhoneNumber());
     sendBufferedMessageViaSMS();
+
+    // put your code in here
+
   }
   if (event.status == SIM900_NOCARRIER) {
     if(sim900.isCalling()) {
@@ -120,6 +126,9 @@ void loop() {
       Serial.println(F("call ended. preparing to send sms..."));
       sendBufferedMessageViaSMS();
     }
+
+    // put your code in here
+    
   }
 
   // Non-blocking serial command reader

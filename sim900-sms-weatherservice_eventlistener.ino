@@ -28,6 +28,9 @@ public:
     }
 
     bool execute() override {
+
+      // put your code in here
+
         // This code will now be executed from within sim900.handleEvents()
         if (!sim900.isCalling()) { // On the very first ring, set the state and start time.
           sim900.calling = true;
@@ -78,6 +81,9 @@ public:
   }
 
   bool execute() override {
+
+    // put your code in here
+
     if(sim900.isCalling()) {
       sim900.calling = false;
       Serial.println(F("call ended. preparing to send sms..."));
@@ -91,7 +97,10 @@ OnNOCARRIERListener* onNocarrierPtr = nullptr;
 class OnCMTListener : public EventListener {
 public:
   OnCMTListener() { type = SIM900_CMT; }
-  bool execute() override { 
+  bool execute() override {
+
+    // put your code in here 
+    
     // Clear the serial buffer to discard the SMS message body, as we don't need it.
     sim900.clearBuffer();
     Serial.print(F("received an sms from "));

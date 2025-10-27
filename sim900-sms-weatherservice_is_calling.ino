@@ -52,12 +52,22 @@ void loop() {
       Serial.print(sim900.getPhoneNumber()); Serial.println(F(" is calling..."));
       lastRingMessageTime = millis();
     }
+
+    // put your code in here
+
   }
-  if (event.status == SIM900_CMT) {}
+  if (event.status == SIM900_CMT) {
+
+    // put your code in here
+
+  }
   if (event.status == SIM900_NOCARRIER) {
     if(sim900.isCalling()) {
       sim900.calling = false;
     }
+
+    // put your code in here
+    
   }
 
   delay(50); // Reduced delay to make loop more responsive
