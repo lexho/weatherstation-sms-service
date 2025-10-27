@@ -55,7 +55,16 @@ Message CommandBuffer::parseStorebuffer(const char* command) {
             unsigned long total_seconds = ((time_ptr[0] - '0') * 10UL + (time_ptr[1] - '0')) * 3600UL +
                                           ((time_ptr[3] - '0') * 10UL + (time_ptr[4] - '0')) * 60UL +
                                           ((time_ptr[6] - '0') * 10UL + (time_ptr[7] - '0'));
-            message_received_time = total_seconds * 1000UL;
+            
+            // Convert local time (CET/CEST) from message to UTC.
+            // The system time is already in UTC.
+            unsigned long offset_millis = Time::isDST() ? (Time::timezone + Time::oneHour) : Time::timezone;
+            unsigned long offset_seconds = offset_millis / 1000UL;
+
+            // Subtract offset, handling underflow (e.g., 00:30 CEST -> 22:30 UTC previous day)
+            unsigned long utc_total_seconds = (total_seconds + (24 * 3600UL) - offset_seconds) % (24 * 3600UL);
+
+            message_received_time = utc_total_seconds * 1000UL;
         }
     }
     return {STOREBUFFER, message, message_received_time, nullptr};
