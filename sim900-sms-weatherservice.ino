@@ -11,94 +11,16 @@ bool daily_task_done = false; // Flag to ensure daily invalidation runs only onc
 
 CommandBuffer cmdbuffer;
 
+MessageBuffer buffer;
+unsigned long message_received_time = 0; // in milliseconds since midnight
+bool has_valid_data = false;
+unsigned long calling_time = 0;
 
 SIM900 sim900(Serial1);
 
-class OnOKListener : public EventListener {
-public:
-  OnOKListener() { type = SIM900_OK; }
-  bool execute() override { Serial.println(F("received OK.")); }
-};
-
-class OnCallListener : public EventListener {
-  unsigned long lastRingMessageTime = 0;
-public:
-    OnCallListener() {
-      type = SIM900_RING; // Set the type inherited from EventListener
-    }
-
-    bool execute() override {
-        // This code will now be executed from within sim900.handleEvents()
-        if (!sim900.isCalling()) { // On the very first ring, set the state and start time.
-          sim900.calling = true;
-          lastRingMessageTime = millis();
-          Serial.println(F("someone is calling..."));
-        }
-        
-        if(sim900.isCalling() && (millis() - lastRingMessageTime > 1000)) {
-          Serial.print(sim900.getPhoneNumber()); Serial.println(F(" is calling..."));
-          lastRingMessageTime = millis();
-        }
-        return true;
-    }
-};
-
-class OnNOCARRIERListener : public EventListener {
-public:
-  OnNOCARRIERListener() {
-    type = SIM900_NOCARRIER;
-  }
-
-  MessageBuffer buffer;
-  unsigned long message_received_time = 0; // in milliseconds since midnight
-  bool has_valid_data = false;
-
-  bool sendBufferedMessageViaSMS() {
-    // If we don't have valid data, send the "not available" message.
-    if (!has_valid_data) {
-      return sim900.sendSMSRoutine("No data available.");
-    }
-
-    unsigned long currentMillisSinceMidnight = Time::getMillisSinceMidnight();
-    unsigned long age;
-
-    // Calculate the age of the message, handling the midnight rollover case.
-    if (currentMillisSinceMidnight >= message_received_time) {
-      age = currentMillisSinceMidnight - message_received_time;
-    } else {
-      age = (Time::oneDay - message_received_time) + currentMillisSinceMidnight;
-    }
-
-    // Check if the age is less than 4 minutes.
-    if (age < (4UL * Time::oneMinute)) {
-      return sim900.sendSMSRoutine(buffer.c_str());
-    } else {
-      return sim900.sendSMSRoutine("Keine aktuellen Wetterdaten verfugbar.");
-    }
-  }
-
-  bool execute() override {
-    if(sim900.isCalling()) {
-      sim900.calling = false;
-      Serial.println(F("call ended. preparing to send sms..."));
-      sendBufferedMessageViaSMS();
-    }
-  }
-};
-
-OnNOCARRIERListener* onNocarrierPtr = nullptr;
-
-class OnCMTListener : public EventListener {
-public:
-  OnCMTListener() { type = SIM900_CMT; }
-  bool execute() override { 
-    // Clear the serial buffer to discard the SMS message body, as we don't need it.
-    sim900.clearBuffer();
-    Serial.print(F("received an sms from "));
-    Serial.println(sim900.getPhoneNumber());
-    onNocarrierPtr->sendBufferedMessageViaSMS();
-  }
-};
+int event_status_old = 0;
+bool calling = false;
+unsigned long lastRingMessageTime = 0;
 
 void setup() {
   Serial.begin(19200);
@@ -108,17 +30,6 @@ void setup() {
   while(!sim900.bootstrap()) {
     delay(5000); // Wait before retrying
   }
-
-  // Create and register the listener so it's ready for events.
-  auto onOK = std::make_unique<OnOKListener>();
-  auto onCall = std::make_unique<OnCallListener>();
-  auto onNocarrier = std::make_unique<OnNOCARRIERListener>();
-  auto onCmt = std::make_unique<OnCMTListener>();
-  onNocarrierPtr = onNocarrier.get();
-  sim900.registerListener(std::move(onOK));
-  sim900.registerListener(std::move(onCall)); // register a on call listener which prints " is calling" to Serial
-  sim900.registerListener(std::move(onNocarrier));
-  sim900.registerListener(std::move(onCmt));
 
   SIM900RTC current = sim900.rtc();
   Time::storeRTC(current);
@@ -133,7 +44,7 @@ void loop() {
   // Every 2 seconds print the message in the buffer
   if (millis() - start_time_buffer >= 2000) {
     start_time_buffer = millis();
-    onNocarrierPtr->buffer.printBuffer();
+    buffer.printBuffer();
   }
 
   // every 10 minutes
@@ -164,7 +75,7 @@ void loop() {
 
   // Invalidate the data once per day after 23:00.
   if (Time::getMillisSinceMidnight() > 23UL * Time::oneHour && !daily_task_done) {
-    onNocarrierPtr->has_valid_data = false;
+    has_valid_data = false;
     daily_task_done = true;
   } else if (Time::getMillisSinceMidnight() < 23UL * Time::oneHour) {
     daily_task_done = false;
@@ -175,6 +86,41 @@ void loop() {
   }*/
 
   SIM900_Handler_Event event = sim900.handleEvents();
+  if(event.status != event_status_old) {
+    Serial.print("event.status: "); Serial.println(event.status);
+    event_status_old = event.status;
+  }
+  if(event.status == SIM900_OK) { Serial.println(F("received OK.")); }
+  // If a RING event is detected, set the 'calling' state.
+  if (event.status == SIM900_RING) {
+   if (!sim900.isCalling()) { // On the very first ring, set the state and start time.
+      sim900.calling = true;
+      lastRingMessageTime = millis();
+      Serial.println(F("someone is calling..."));
+    }
+    
+    if(sim900.isCalling() && (millis() - lastRingMessageTime > 1000)) {
+      Serial.print(sim900.getPhoneNumber()); Serial.println(F(" is calling..."));
+      lastRingMessageTime = millis();
+    }
+  }
+  if(event.status == SIM900_CLIP) {
+    
+  }
+  if (event.status == SIM900_CMT) {
+    // Clear the serial buffer to discard the SMS message body, as we don't need it.
+    sim900.clearBuffer();
+    Serial.print(F("received an sms from "));
+    Serial.println(sim900.getPhoneNumber());
+    sendBufferedMessageViaSMS();
+  }
+  if (event.status == SIM900_NOCARRIER) {
+    if(sim900.isCalling()) {
+      sim900.calling = false;
+      Serial.println(F("call ended. preparing to send sms..."));
+      sendBufferedMessageViaSMS();
+    }
+  }
 
   // Non-blocking serial command reader
   while (Serial.available() > 0) {
@@ -186,15 +132,15 @@ void loop() {
         switch (msg.type) {
             case STOREBUFFER:
                 // Ensure the message isn't too long for our buffer
-                if (msg.message != nullptr && strlen(msg.message) >= onNocarrierPtr->buffer.sizeOfBuffer()) {
+                if (msg.message != nullptr && strlen(msg.message) >= buffer.sizeOfBuffer()) {
                     Serial.print(F("error: message is too long\n"));
                 } else if (msg.message != nullptr) {
                     // Safely copy the message to the global buffer
-                    onNocarrierPtr->buffer.copyToBuffer(msg.message);
-                    onNocarrierPtr->buffer.printBuffer();
+                    buffer.copyToBuffer(msg.message);
+                    buffer.printBuffer();
                     if (msg.message_received_time > 0) {
-                        onNocarrierPtr->message_received_time = msg.message_received_time;
-                        onNocarrierPtr->has_valid_data = true;
+                        message_received_time = msg.message_received_time;
+                        has_valid_data = true;
                     }
                 } // if message is null, it was an invalid storebuffer command, do nothing.
                 break;
@@ -204,7 +150,7 @@ void loop() {
                 break;
             case EMPTY:
                 // If the command was empty (e.g., just pressing Enter), print the buffer
-                onNocarrierPtr->buffer.printBuffer();
+                buffer.printBuffer();
                 break;
             case TIME:
                 // The 'time' command already prints to Serial inside CommandBuffer.
@@ -215,4 +161,28 @@ void loop() {
   }
 
   delay(50); // Reduced delay to make loop more responsive
+}
+
+bool sendBufferedMessageViaSMS() {
+  // If we don't have valid data, send the "not available" message.
+  if (!has_valid_data) {
+    return sim900.sendSMSRoutine("No data available.");
+  }
+
+  unsigned long currentMillisSinceMidnight = Time::getMillisSinceMidnight();
+  unsigned long age;
+
+  // Calculate the age of the message, handling the midnight rollover case.
+  if (currentMillisSinceMidnight >= message_received_time) {
+    age = currentMillisSinceMidnight - message_received_time;
+  } else {
+    age = (Time::oneDay - message_received_time) + currentMillisSinceMidnight;
+  }
+
+  // Check if the age is less than 4 minutes.
+  if (age < (4UL * Time::oneMinute)) {
+    return sim900.sendSMSRoutine(buffer.c_str());
+  } else {
+    return sim900.sendSMSRoutine("Keine aktuellen Wetterdaten verfugbar.");
+  }
 }
