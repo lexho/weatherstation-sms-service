@@ -1,6 +1,22 @@
-# weatherstation-sms-service
+# Weatherstation SMS Service
 ![arduino_sms_service](https://github.com/lexho/weatherstation-sms-service/blob/main/arduino_sms_service.jpg)
 
+I provide a few sample Arduino-sketches:
+
+| filename | description | difficulty
+| :------------------------------------------ | :---------------------------- | :---------------|
+| sim900-sms-weatherservice.ino               | responds to calls and sms | the most complex one |
+| sim900-sms-weatherservice_eventlistener.ino | responds to calls and sms | the most complex one with EventListener-Class derivates |
+| sim900-sms-weatherservice_is_calling.ino    |just recognizes incoming calls | the most simple |
+
+## Prerequisites
+- SIM900-GSM-Shield
+- [SIM900-Library](https://github.com/lexho/SIM900)
+- Arduino IDE
+- Arduino Nano 33 BLE or similar with HardwareSerial
+
+## weatherstation-sms-service
+### weatherservice_eventlistener
 It ***sends an sms*** with the current weather data.
 
 ***Send a message*** to arduino with the 
@@ -33,10 +49,6 @@ if(event.status == SIM900.RING) {
 Keep the actions short to make sure handleEvents() will execute regurlary and don't misses any event.
 For best experiences use my fork of the [SIM900](https://github.com/lexho/SIM900) library.
 This code has been tested on an **Arduino Nano 33 BLE** and will run any similar hardware with ***hardware serial ports***.
-
-Requirements:
-* SIM900-GSM-Shield
-* Arduino Nano 33 BLE
 
 ### Wiring and Pinout
 | Conenctor | Pin | Conenctor        | Pin |
