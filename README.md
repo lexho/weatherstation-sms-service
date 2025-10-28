@@ -7,7 +7,8 @@ I provide a few sample Arduino-sketches:
 | :------------------------------------------ | :---------------------------- | :---------------|
 | sim900-sms-weatherservice.ino               | responds to calls and sms | the most complex one |
 | sim900-sms-weatherservice_eventlistener.ino | responds to calls and sms | the most complex one with EventListener-Class derivates |
-| sim900-sms-weatherservice_is_calling.ino    |just recognizes incoming calls | the most simple |
+| sim900-sms-weatherservice_is_calling.ino    | just recognizes incoming calls | the most simple |
+| sim900_AT_commands.ino                      | utility to send AT-commands | simply but you need to know how use AT-commands |
 
 ## Prerequisites
 - SIM900-GSM-Shield

@@ -40,7 +40,7 @@ void Time::storeRTC(SIM900RTC rtc)
 
     // The SIM900 RTC provides local time. Assuming it is always CEST (UTC+2) as per the network provider.
     unsigned long local_total_seconds = (unsigned long)rtc.hour * 3600UL + (unsigned long)rtc.minute * 60UL + (unsigned long)rtc.second;
-    unsigned long offset_seconds = Time::twoHours / 1000UL; // 2 hours in seconds
+    unsigned long offset_seconds = Time::timezone / 1000UL; // 2 hours in seconds
 
     // Subtract offset to get UTC, handling midnight rollover
     unsigned long utc_total_seconds = (local_total_seconds + (oneDay / 1000) - offset_seconds) % (oneDay / 1000);
